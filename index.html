@@ -8,70 +8,89 @@
         button { padding: 15px; font-size: 1.2rem; cursor: pointer; margin-bottom: 20px; }
         #legenda { font-size: 2.5rem; font-weight: bold; width: 80%; margin: 0 auto; line-height: 1.4; }
         .status { color: #888; font-size: 1.2rem; margin-top: 10px; }
+        .erro { color: red; font-size: 1.5rem; font-weight: bold; margin-top: 20px; }
     </style>
 </head>
 <body>
     <button onclick="iniciarCaptura()">Ouvir Som da Reunião</button>
     <div id="legenda">Aguardando...</div>
     <div id="status_debug" class="status"></div>
+    <div id="erro_msg" class="erro"></div>
 
     <script>
         const DEEPGRAM_API_KEY = '53ef75eeb72768bdaa5560d63dfe21445c612f86'; 
         let socket;
+        let audioContext;
 
         async function iniciarCaptura() {
+            document.getElementById('erro_msg').innerText = ""; // Limpa erros passados
+
             try {
                 const stream = await navigator.mediaDevices.getDisplayMedia({
                     video: true, 
                     audio: true
                 });
 
-                document.getElementById('legenda').innerText = "[Áudio capturado. Conectando à IA...]";
+                // VALIDAÇÃO CRÍTICA: Se o áudio não vier junto com o vídeo, o processo é barrado.
+                if (stream.getAudioTracks().length === 0) {
+                    document.getElementById('erro_msg').innerText = "ERRO: Você esqueceu de marcar a opção 'Compartilhar áudio da guia' na janela de seleção do Chrome. Atualize a página (F5) e tente novamente.";
+                    stream.getTracks().forEach(track => track.stop());
+                    return;
+                }
 
-                socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en', [
+                document.getElementById('legenda').innerText = "[Conectando à IA...]";
+
+                // Força a conexão a aceitar apenas áudio cru (linear16) sem contêineres que quebram o código
+                socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1', [
                     'token', DEEPGRAM_API_KEY
                 ]);
 
                 socket.onopen = () => {
                     document.getElementById('legenda').innerText = "[Conectado! Escutando a reunião...]";
                     
-                    const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                    // Estrutura para extrair o áudio puro da placa do navegador
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                    const source = audioContext.createMediaStreamSource(stream);
+                    const processor = audioContext.createScriptProcessor(4096, 1, 1);
                     
-                    mediaRecorder.addEventListener('dataavailable', event => {
-                        if (event.data.size > 0 && socket.readyState === 1) {
-                            socket.send(event.data);
+                    // Cria uma saída silenciosa para não dar eco no seu fone
+                    const dummyNode = audioContext.createGain();
+                    dummyNode.gain.value = 0;
+
+                    source.connect(processor);
+                    processor.connect(dummyNode);
+                    dummyNode.connect(audioContext.destination);
+
+                    processor.onaudioprocess = (e) => {
+                        if (socket.readyState === 1) {
+                            const inputData = e.inputBuffer.getChannelData(0);
+                            const pcm16 = new Int16Array(inputData.length);
+                            // Converte a frequência do navegador (Float32) para a exigida pela IA (Int16)
+                            for (let i = 0; i < inputData.length; i++) {
+                                pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
+                            }
+                            socket.send(pcm16.buffer);
                         }
-                    });
-                    
-                    mediaRecorder.start(250);
+                    };
                 };
 
                 socket.onmessage = async (message) => {
                     try {
                         const data = JSON.parse(message.data);
-                        
-                        // Correção: Filtra apenas as mensagens que contêm resultados de transcrição
                         if (data.type === 'Results' && data.channel) {
                             const transcricao = data.channel.alternatives[0].transcript;
-                            
                             if (transcricao && data.is_final) {
                                 document.getElementById('status_debug').innerText = "Inglês captado: " + transcricao;
                                 traduzir(transcricao);
                             }
                         }
                     } catch (e) {
-                        console.error("Erro ao ler os dados da IA:", e);
+                        console.error("Erro na leitura de dados:", e);
                     }
                 };
 
-                socket.onerror = (error) => {
-                    document.getElementById('legenda').innerText = "[Erro na conexão com a IA]";
-                    console.error("WebSocket Error:", error);
-                };
-
             } catch (err) {
-                document.getElementById('legenda').innerText = "Erro ao capturar áudio da tela.";
-                console.error(err);
+                document.getElementById('erro_msg').innerText = "A captura de áudio da tela foi cancelada.";
             }
         }
 
@@ -82,8 +101,7 @@
                 const data = await response.json();
                 document.getElementById('legenda').innerText = data[0][0][0];
             } catch (error) {
-                document.getElementById('legenda').innerText = "[Falha na tradução - exibindo original] " + texto;
-                console.error("Erro na tradução", error);
+                document.getElementById('legenda').innerText = "[Falha na tradução] " + texto;
             }
         }
     </script>
