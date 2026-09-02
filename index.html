@@ -2,76 +2,39 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Legenda Simultânea</title>
+    <title>Legenda do Sistema</title>
     <style>
-        body { 
-            background-color: black; 
-            color: yellow; 
-            font-family: Arial, sans-serif; 
-            display: flex; 
-            justify-content: center; 
-            align-items: flex-end; 
-            height: 100vh; 
-            margin: 0; 
-            padding-bottom: 80px; 
-        }
-        #subtitle { 
-            font-size: 3rem; 
-            font-weight: bold; 
-            text-align: center; 
-            max-width: 90%; 
-        }
-        button { 
-            position: absolute; 
-            top: 20px; 
-            left: 20px; 
-            padding: 10px 20px; 
-            font-size: 1rem; 
-            cursor: pointer; 
-        }
+        body { background: black; color: yellow; font-family: Arial; text-align: center; padding-top: 50px; }
+        button { padding: 15px; font-size: 1.2rem; cursor: pointer; }
+        #legenda { font-size: 2rem; margin-top: 30px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <button onclick="iniciar()">Iniciar Legenda</button>
-    <div id="subtitle">Aguardando áudio...</div>
+    <button onclick="capturarAudioSistema()">Ouvir Som da Reunião</button>
+    <div id="legenda">Aguardando...</div>
 
     <script>
-        const subtitleDiv = document.getElementById('subtitle');
-
-        function iniciar() {
-            if (!('webkitSpeechRecognition' in window)) {
-                alert("Por favor, use o Google Chrome ou Microsoft Edge.");
-                return;
-            }
-
-            const recognition = new webkitSpeechRecognition();
-            recognition.lang = 'en-US'; // Idioma que o palestrante vai falar
-            recognition.continuous = true;
-            recognition.interimResults = false;
-
-            recognition.onresult = async function(event) {
-                const textoOriginal = event.results[event.results.length - 1][0].transcript;
-                traduzir(textoOriginal);
-            };
-
-            recognition.onend = function() {
-                recognition.start(); // Mantém escutando continuamente
-            };
-
-            recognition.start();
-            document.querySelector('button').style.display = 'none';
-            subtitleDiv.innerText = "[Escutando a reunião...]";
-        }
-
-        async function traduzir(texto) {
-            // API gratuita e sem chave do Google Translate para projetos simples
-            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(texto)}`;
+        async function capturarAudioSistema() {
             try {
-                const response = await fetch(url);
-                const data = await response.json();
-                subtitleDiv.innerText = data[0][0][0]; // Exibe o texto traduzido
-            } catch (error) {
-                console.error("Erro na tradução", error);
+                // Este comando força o navegador a pedir o áudio do computador e ignora o microfone físico
+                const stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true, // O navegador exige pedir o vídeo junto para liberar o áudio do sistema
+                    audio: true
+                });
+
+                document.getElementById('legenda').innerText = "[Áudio do computador conectado com sucesso!]";
+
+                // O áudio da reunião agora está salvo dentro da variável 'stream'.
+                
+                /*
+                  A BARREIRA TÉCNICA:
+                  A ferramenta gratuita de reconhecimento de voz do navegador (webkitSpeechRecognition) 
+                  NÃO aceita receber a variável 'stream'. O Google bloqueou essa função por segurança, 
+                  obrigando a API a escutar EXCLUSIVAMENTE o hardware do microfone. 
+                */
+
+            } catch (err) {
+                document.getElementById('legenda').innerText = "Você não autorizou ou ocorreu um erro.";
             }
         }
     </script>
