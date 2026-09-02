@@ -2,39 +2,75 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Legenda do Sistema</title>
+    <title>Legenda com Áudio do Sistema</title>
     <style>
-        body { background: black; color: yellow; font-family: Arial; text-align: center; padding-top: 50px; }
-        button { padding: 15px; font-size: 1.2rem; cursor: pointer; }
-        #legenda { font-size: 2rem; margin-top: 30px; font-weight: bold; }
+        body { background: black; color: yellow; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+        button { padding: 15px; font-size: 1.2rem; cursor: pointer; margin-bottom: 20px; }
+        #legenda { font-size: 2.5rem; font-weight: bold; width: 80%; margin: 0 auto; }
     </style>
 </head>
 <body>
-    <button onclick="capturarAudioSistema()">Ouvir Som da Reunião</button>
+    <button onclick="iniciarCaptura()">Ouvir Som da Reunião</button>
     <div id="legenda">Aguardando...</div>
 
     <script>
-        async function capturarAudioSistema() {
+        // Insira sua chave gratuita gerada no painel do Deepgram
+        const DEEPGRAM_API_KEY = 'SUA_CHAVE_API_AQUI'; 
+        let socket;
+
+        async function iniciarCaptura() {
             try {
-                // Este comando força o navegador a pedir o áudio do computador e ignora o microfone físico
                 const stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: true, // O navegador exige pedir o vídeo junto para liberar o áudio do sistema
+                    video: true, 
                     audio: true
                 });
 
-                document.getElementById('legenda').innerText = "[Áudio do computador conectado com sucesso!]";
+                document.getElementById('legenda').innerText = "[Áudio capturado. Conectando à IA...]";
 
-                // O áudio da reunião agora está salvo dentro da variável 'stream'.
-                
-                /*
-                  A BARREIRA TÉCNICA:
-                  A ferramenta gratuita de reconhecimento de voz do navegador (webkitSpeechRecognition) 
-                  NÃO aceita receber a variável 'stream'. O Google bloqueou essa função por segurança, 
-                  obrigando a API a escutar EXCLUSIVAMENTE o hardware do microfone. 
-                */
+                // Inicia a conexão WebSocket com a IA
+                socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en', [
+                    'token', DEEPGRAM_API_KEY
+                ]);
+
+                socket.onopen = () => {
+                    document.getElementById('legenda').innerText = "[Conectado! Escutando a reunião...]";
+                    
+                    // Empacota o áudio capturado da aba
+                    const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                    
+                    mediaRecorder.addEventListener('dataavailable', event => {
+                        if (event.data.size > 0 && socket.readyState === 1) {
+                            socket.send(event.data);
+                        }
+                    });
+                    
+                    mediaRecorder.start(250); // Envia pacotes a cada 250ms
+                };
+
+                socket.onmessage = async (message) => {
+                    const data = JSON.parse(message.data);
+                    const transcricao = data.channel.alternatives[0].transcript;
+                    
+                    // Só aciona o tradutor se houver uma frase consolidada
+                    if (transcricao && data.is_final) {
+                        traduzir(transcricao);
+                    }
+                };
 
             } catch (err) {
-                document.getElementById('legenda').innerText = "Você não autorizou ou ocorreu um erro.";
+                document.getElementById('legenda').innerText = "Erro ao capturar áudio da tela.";
+                console.error(err);
+            }
+        }
+
+        async function traduzir(texto) {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(texto)}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                document.getElementById('legenda').innerText = data[0][0][0];
+            } catch (error) {
+                console.error("Erro na tradução", error);
             }
         }
     </script>
