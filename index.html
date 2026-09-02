@@ -2,19 +2,53 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Legenda com Áudio do Sistema</title>
+    <title>Legenda Simultânea</title>
     <style>
-        body { background: black; color: yellow; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-        button { padding: 15px; font-size: 1.2rem; cursor: pointer; margin-bottom: 20px; }
-        #legenda { font-size: 2.5rem; font-weight: bold; width: 80%; margin: 0 auto; line-height: 1.4; }
-        .status { color: #888; font-size: 1.2rem; margin-top: 10px; }
-        .erro { color: red; font-size: 1.5rem; font-weight: bold; margin-top: 20px; }
+        body { 
+            background: black; 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            padding-top: 50px; 
+            margin: 0;
+        }
+        button { 
+            padding: 15px; 
+            font-size: 1.2rem; 
+            cursor: pointer; 
+            margin-bottom: 30px; 
+        }
+        #container-legendas {
+            width: 90%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        /* Legenda Superior: Português (Maior e Amarela) */
+        #legenda-pt { 
+            font-size: 3rem; 
+            font-weight: bold; 
+            color: yellow; 
+            line-height: 1.3; 
+        }
+        /* Legenda Inferior: Inglês (Menor e Cinza) */
+        #legenda-en { 
+            font-size: 1.5rem; 
+            color: #aaaaaa; 
+            line-height: 1.3; 
+            font-style: italic;
+        }
+        .erro { color: red; font-size: 1.2rem; font-weight: bold; margin-top: 20px; }
     </style>
 </head>
 <body>
     <button onclick="iniciarCaptura()">Ouvir Som da Reunião</button>
-    <div id="legenda">Aguardando...</div>
-    <div id="status_debug" class="status"></div>
+    
+    <div id="container-legendas">
+        <div id="legenda-pt">Aguardando...</div>
+        <div id="legenda-en">Waiting...</div>
+    </div>
+    
     <div id="erro_msg" class="erro"></div>
 
     <script>
@@ -23,7 +57,7 @@
         let audioContext;
 
         async function iniciarCaptura() {
-            document.getElementById('erro_msg').innerText = ""; // Limpa erros passados
+            document.getElementById('erro_msg').innerText = ""; 
 
             try {
                 const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -31,29 +65,27 @@
                     audio: true
                 });
 
-                // VALIDAÇÃO CRÍTICA: Se o áudio não vier junto com o vídeo, o processo é barrado.
                 if (stream.getAudioTracks().length === 0) {
-                    document.getElementById('erro_msg').innerText = "ERRO: Você esqueceu de marcar a opção 'Compartilhar áudio da guia' na janela de seleção do Chrome. Atualize a página (F5) e tente novamente.";
+                    document.getElementById('erro_msg').innerText = "ERRO: Marque a opção 'Compartilhar áudio da guia' na janela do navegador e tente novamente.";
                     stream.getTracks().forEach(track => track.stop());
                     return;
                 }
 
-                document.getElementById('legenda').innerText = "[Conectando à IA...]";
+                document.getElementById('legenda-pt').innerText = "[Conectando à IA...]";
+                document.getElementById('legenda-en').innerText = "[Connecting...]";
 
-                // Força a conexão a aceitar apenas áudio cru (linear16) sem contêineres que quebram o código
                 socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1', [
                     'token', DEEPGRAM_API_KEY
                 ]);
 
                 socket.onopen = () => {
-                    document.getElementById('legenda').innerText = "[Conectado! Escutando a reunião...]";
+                    document.getElementById('legenda-pt').innerText = "[Escutando a reunião...]";
+                    document.getElementById('legenda-en').innerText = "[Listening to the meeting...]";
                     
-                    // Estrutura para extrair o áudio puro da placa do navegador
                     audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                     const source = audioContext.createMediaStreamSource(stream);
                     const processor = audioContext.createScriptProcessor(4096, 1, 1);
                     
-                    // Cria uma saída silenciosa para não dar eco no seu fone
                     const dummyNode = audioContext.createGain();
                     dummyNode.gain.value = 0;
 
@@ -65,7 +97,6 @@
                         if (socket.readyState === 1) {
                             const inputData = e.inputBuffer.getChannelData(0);
                             const pcm16 = new Int16Array(inputData.length);
-                            // Converte a frequência do navegador (Float32) para a exigida pela IA (Int16)
                             for (let i = 0; i < inputData.length; i++) {
                                 pcm16[i] = Math.max(-1, Math.min(1, inputData[i])) * 32767;
                             }
@@ -80,7 +111,9 @@
                         if (data.type === 'Results' && data.channel) {
                             const transcricao = data.channel.alternatives[0].transcript;
                             if (transcricao && data.is_final) {
-                                document.getElementById('status_debug').innerText = "Inglês captado: " + transcricao;
+                                // 1. Exibe imediatamente o inglês na parte de baixo
+                                document.getElementById('legenda-en').innerText = transcricao;
+                                // 2. Envia para traduzir a parte de cima
                                 traduzir(transcricao);
                             }
                         }
@@ -95,13 +128,35 @@
         }
 
         async function traduzir(texto) {
-            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(texto)}`;
+            const urlGoogle = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(texto)}`;
+
             try {
-                const response = await fetch(url);
+                // TENTATIVA 1: Motor Principal (Google Translate)
+                const response = await fetch(urlGoogle);
+                if (!response.ok) throw new Error("Bloqueio de CORS ou Limite de Taxa");
                 const data = await response.json();
-                document.getElementById('legenda').innerText = data[0][0][0];
+                document.getElementById('legenda-pt').innerText = data[0][0][0];
+                
             } catch (error) {
-                document.getElementById('legenda').innerText = "[Falha na tradução] " + texto;
+                try {
+                    // TENTATIVA 2: Motor Secundário (Lingva API) - Contorna bloqueio do Google
+                    const urlLingva = `https://lingva.ml/api/v1/en/pt/${encodeURIComponent(texto)}`;
+                    const resLingva = await fetch(urlLingva);
+                    const dataLingva = await resLingva.json();
+                    document.getElementById('legenda-pt').innerText = dataLingva.translation;
+                    
+                } catch (error2) {
+                    try {
+                        // TENTATIVA 3: Motor Terciário (MyMemory)
+                        const urlMyMemory = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(texto)}&langpair=en|pt-br`;
+                        const resMyMemory = await fetch(urlMyMemory);
+                        const dataMyMemory = await resMyMemory.json();
+                        document.getElementById('legenda-pt').innerText = dataMyMemory.responseData.translatedText;
+                        
+                    } catch (error3) {
+                        document.getElementById('legenda-pt').innerText = "[Erro nos servidores de tradução]";
+                    }
+                }
             }
         }
     </script>
