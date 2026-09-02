@@ -6,15 +6,16 @@
     <style>
         body { background: black; color: yellow; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
         button { padding: 15px; font-size: 1.2rem; cursor: pointer; margin-bottom: 20px; }
-        #legenda { font-size: 2.5rem; font-weight: bold; width: 80%; margin: 0 auto; }
+        #legenda { font-size: 2.5rem; font-weight: bold; width: 80%; margin: 0 auto; line-height: 1.4; }
+        .status { color: #888; font-size: 1.2rem; margin-top: 10px; }
     </style>
 </head>
 <body>
     <button onclick="iniciarCaptura()">Ouvir Som da Reunião</button>
     <div id="legenda">Aguardando...</div>
+    <div id="status_debug" class="status"></div>
 
     <script>
-        // Chave da API inserida conforme solicitado
         const DEEPGRAM_API_KEY = '53ef75eeb72768bdaa5560d63dfe21445c612f86'; 
         let socket;
 
@@ -27,7 +28,6 @@
 
                 document.getElementById('legenda').innerText = "[Áudio capturado. Conectando à IA...]";
 
-                // Inicia a conexão WebSocket com a IA
                 socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en', [
                     'token', DEEPGRAM_API_KEY
                 ]);
@@ -35,7 +35,6 @@
                 socket.onopen = () => {
                     document.getElementById('legenda').innerText = "[Conectado! Escutando a reunião...]";
                     
-                    // Empacota o áudio capturado da aba
                     const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                     
                     mediaRecorder.addEventListener('dataavailable', event => {
@@ -44,17 +43,30 @@
                         }
                     });
                     
-                    mediaRecorder.start(250); // Envia pacotes a cada 250ms
+                    mediaRecorder.start(250);
                 };
 
                 socket.onmessage = async (message) => {
-                    const data = JSON.parse(message.data);
-                    const transcricao = data.channel.alternatives[0].transcript;
-                    
-                    // Só aciona o tradutor se houver uma frase consolidada
-                    if (transcricao && data.is_final) {
-                        traduzir(transcricao);
+                    try {
+                        const data = JSON.parse(message.data);
+                        
+                        // Correção: Filtra apenas as mensagens que contêm resultados de transcrição
+                        if (data.type === 'Results' && data.channel) {
+                            const transcricao = data.channel.alternatives[0].transcript;
+                            
+                            if (transcricao && data.is_final) {
+                                document.getElementById('status_debug').innerText = "Inglês captado: " + transcricao;
+                                traduzir(transcricao);
+                            }
+                        }
+                    } catch (e) {
+                        console.error("Erro ao ler os dados da IA:", e);
                     }
+                };
+
+                socket.onerror = (error) => {
+                    document.getElementById('legenda').innerText = "[Erro na conexão com a IA]";
+                    console.error("WebSocket Error:", error);
                 };
 
             } catch (err) {
@@ -70,6 +82,7 @@
                 const data = await response.json();
                 document.getElementById('legenda').innerText = data[0][0][0];
             } catch (error) {
+                document.getElementById('legenda').innerText = "[Falha na tradução - exibindo original] " + texto;
                 console.error("Erro na tradução", error);
             }
         }
