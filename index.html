@@ -111,9 +111,9 @@
                         if (data.type === 'Results' && data.channel) {
                             const transcricao = data.channel.alternatives[0].transcript;
                             if (transcricao && data.is_final) {
-                                // 1. Exibe imediatamente o inglês na parte de baixo
+                                // Parte em inglês intacta
                                 document.getElementById('legenda-en').innerText = transcricao;
-                                // 2. Envia para traduzir a parte de cima
+                                // Envia para o motor de tradução corrigido
                                 traduzir(transcricao);
                             }
                         }
@@ -128,34 +128,38 @@
         }
 
         async function traduzir(texto) {
-            const urlGoogle = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(texto)}`;
-
             try {
-                // TENTATIVA 1: Motor Principal (Google Translate)
+                // TENTATIVA 1: Google Translate
+                const urlGoogle = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(texto)}`;
                 const response = await fetch(urlGoogle);
-                if (!response.ok) throw new Error("Bloqueio de CORS ou Limite de Taxa");
                 const data = await response.json();
-                document.getElementById('legenda-pt').innerText = data[0][0][0];
+                
+                // Trava de segurança: só atualiza a tela se o texto traduzido realmente existir no formato esperado
+                if (data && data[0] && data[0][0] && data[0][0][0]) {
+                    document.getElementById('legenda-pt').innerText = data[0][0][0];
+                    return; // Interrompe a função com sucesso
+                }
+                
+                throw new Error("Formato inválido do Google");
                 
             } catch (error) {
                 try {
-                    // TENTATIVA 2: Motor Secundário (Lingva API) - Contorna bloqueio do Google
-                    const urlLingva = `https://lingva.ml/api/v1/en/pt/${encodeURIComponent(texto)}`;
-                    const resLingva = await fetch(urlLingva);
-                    const dataLingva = await resLingva.json();
-                    document.getElementById('legenda-pt').innerText = dataLingva.translation;
+                    // TENTATIVA 2: MyMemory API (Caso o Google falhe)
+                    const urlMyMemory = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(texto)}&langpair=en|pt-br`;
+                    const resMyMemory = await fetch(urlMyMemory);
+                    const dataMyMemory = await resMyMemory.json();
+                    
+                    // Trava de segurança secundária
+                    if (dataMyMemory && dataMyMemory.responseData && dataMyMemory.responseData.translatedText) {
+                        document.getElementById('legenda-pt').innerText = dataMyMemory.responseData.translatedText;
+                        return; // Interrompe a função com sucesso
+                    }
+                    
+                    throw new Error("Formato inválido do MyMemory");
                     
                 } catch (error2) {
-                    try {
-                        // TENTATIVA 3: Motor Terciário (MyMemory)
-                        const urlMyMemory = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(texto)}&langpair=en|pt-br`;
-                        const resMyMemory = await fetch(urlMyMemory);
-                        const dataMyMemory = await resMyMemory.json();
-                        document.getElementById('legenda-pt').innerText = dataMyMemory.responseData.translatedText;
-                        
-                    } catch (error3) {
-                        document.getElementById('legenda-pt').innerText = "[Erro nos servidores de tradução]";
-                    }
+                    // Se os dois servidores falharem, exibe uma mensagem amigável no lugar do "Undefined"
+                    document.getElementById('legenda-pt').innerText = "[Aguardando conexão com o tradutor...]";
                 }
             }
         }
