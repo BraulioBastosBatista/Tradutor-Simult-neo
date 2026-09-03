@@ -2,59 +2,158 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Legenda Simultânea</title>
+    <title>Tradução Simultânea</title>
     <style>
-        body { 
-            background: black; 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            padding-top: 50px; 
+        * {
+            box-sizing: border-box;
             margin: 0;
+            padding: 0;
         }
-        button { 
-            padding: 15px; 
-            font-size: 1.2rem; 
-            cursor: pointer; 
-            margin-bottom: 30px; 
-        }
-        #container-legendas {
-            width: 90%;
-            margin: 0 auto;
+        body { 
+            background: #121212; 
+            color: #ffffff; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            height: 100vh;
             display: flex;
             flex-direction: column;
+            overflow: hidden; /* Trava a tela inteira, a rolagem fica só no container de texto */
+        }
+        
+        /* Cabeçalho de Controles */
+        header {
+            background: #1e1e1e;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #333;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            z-index: 10;
+        }
+        button { 
+            background: #0078D4;
+            color: white;
+            border: none;
+            padding: 12px 24px; 
+            font-size: 1.1rem; 
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer; 
+            transition: background 0.2s;
+        }
+        button:hover { background: #005a9e; }
+        
+        .controles-direita {
+            display: flex;
+            align-items: center;
             gap: 15px;
         }
-        /* Legenda Superior: Português (Maior e Amarela) */
-        #legenda-pt { 
-            font-size: 3rem; 
-            font-weight: bold; 
-            color: yellow; 
-            line-height: 1.3; 
+        select {
+            background: #2d2d2d;
+            color: white;
+            font-size: 1.2rem;
+            padding: 10px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            cursor: pointer;
+            outline: none;
         }
-        /* Legenda Inferior: Inglês (Menor e Cinza) */
-        #legenda-en { 
-            font-size: 1.5rem; 
-            color: #aaaaaa; 
-            line-height: 1.3; 
-            font-style: italic;
+        
+        /* Área das Legendas */
+        #container-legendas {
+            flex: 1;
+            padding: 40px;
+            overflow-y: auto; /* Cria a barra de rolagem à direita */
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            scroll-behavior: smooth;
         }
-        .erro { color: red; font-size: 1.2rem; font-weight: bold; margin-top: 20px; }
+        
+        /* Estilo de cada frase gerada */
+        .frase { 
+            font-size: 2.2rem; 
+            line-height: 1.5; 
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        /* Destaque para a frase mais recente */
+        .frase:last-child {
+            color: #FFD700; /* Amarelo para a frase atual */
+            border-bottom: none;
+            font-weight: bold;
+        }
+
+        .erro { color: #ff5555; font-size: 1rem; font-weight: bold; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
-    <button onclick="iniciarCaptura()">Ouvir Som da Reunião</button>
+
+    <header>
+        <button onclick="iniciarCaptura()" id="btn-iniciar">Ouvir Som da Reunião</button>
+        <div class="controles-direita">
+            <span id="erro_msg" class="erro"></span>
+            <select id="lang-selector" onchange="mudarIdioma()">
+                <option value="pt">🇧🇷 Português</option>
+                <option value="en">🇺🇸 English</option>
+            </select>
+        </div>
+    </header>
     
     <div id="container-legendas">
-        <div id="legenda-pt">Aguardando...</div>
-        <div id="legenda-en">Waiting...</div>
+        <!-- As frases vão aparecer empilhadas aqui dentro -->
     </div>
     
-    <div id="erro_msg" class="erro"></div>
-
     <script>
         const DEEPGRAM_API_KEY = '53ef75eeb72768bdaa5560d63dfe21445c612f86'; 
         let socket;
         let audioContext;
+        const containerLegendas = document.getElementById('container-legendas');
+        const seletorIdioma = document.getElementById('lang-selector');
+
+        function rolarParaFinal() {
+            containerLegendas.scrollTop = containerLegendas.scrollHeight;
+        }
+
+        function mudarIdioma() {
+            const idiomaAtual = seletorIdioma.value;
+            const frases = document.querySelectorAll('.frase');
+            
+            // Troca o texto de todas as frases na tela instantaneamente
+            frases.forEach(div => {
+                if (idiomaAtual === 'pt') {
+                    div.innerText = div.dataset.pt || "[Traduzindo...]";
+                } else {
+                    div.innerText = div.dataset.en;
+                }
+            });
+            rolarParaFinal();
+        }
+
+        function adicionarFrase(textoIngles) {
+            const novaFrase = document.createElement('div');
+            novaFrase.className = 'frase';
+            
+            // Salva os dois idiomas ocultamente dentro do elemento
+            novaFrase.dataset.en = textoIngles;
+            novaFrase.dataset.pt = "[Traduzindo...]";
+            
+            // Define o que aparece na tela com base no seletor
+            novaFrase.innerText = seletorIdioma.value === 'pt' ? novaFrase.dataset.pt : novaFrase.dataset.en;
+            
+            containerLegendas.appendChild(novaFrase);
+            rolarParaFinal();
+            
+            // Dispara a tradução para esta frase específica
+            traduzir(textoIngles, novaFrase);
+        }
 
         async function iniciarCaptura() {
             document.getElementById('erro_msg').innerText = ""; 
@@ -66,22 +165,20 @@
                 });
 
                 if (stream.getAudioTracks().length === 0) {
-                    document.getElementById('erro_msg').innerText = "ERRO: Marque a opção 'Compartilhar áudio da guia' na janela do navegador e tente novamente.";
+                    document.getElementById('erro_msg').innerText = "ERRO: Marque 'Compartilhar áudio da guia'.";
                     stream.getTracks().forEach(track => track.stop());
                     return;
                 }
 
-                document.getElementById('legenda-pt').innerText = "[Conectando à IA...]";
-                document.getElementById('legenda-en').innerText = "[Connecting...]";
+                document.getElementById('btn-iniciar').innerText = "Conectado! Escutando...";
+                document.getElementById('btn-iniciar').style.background = "#28a745";
 
-                socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1', [
+                // endpointing=true força a IA a esperar a pausa da frase antes de finalizar
+                socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1&endpointing=true', [
                     'token', DEEPGRAM_API_KEY
                 ]);
 
                 socket.onopen = () => {
-                    document.getElementById('legenda-pt').innerText = "[Escutando a reunião...]";
-                    document.getElementById('legenda-en').innerText = "[Listening to the meeting...]";
-                    
                     audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                     const source = audioContext.createMediaStreamSource(stream);
                     const processor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -110,56 +207,60 @@
                         const data = JSON.parse(message.data);
                         if (data.type === 'Results' && data.channel) {
                             const transcricao = data.channel.alternatives[0].transcript;
+                            
+                            // Cria um novo bloco apenas quando a frase é finalizada
                             if (transcricao && data.is_final) {
-                                // Parte em inglês intacta
-                                document.getElementById('legenda-en').innerText = transcricao;
-                                // Envia para o motor de tradução corrigido
-                                traduzir(transcricao);
+                                adicionarFrase(transcricao);
                             }
                         }
                     } catch (e) {
-                        console.error("Erro na leitura de dados:", e);
+                        console.error("Erro nos dados:", e);
                     }
                 };
 
             } catch (err) {
-                document.getElementById('erro_msg').innerText = "A captura de áudio da tela foi cancelada.";
+                document.getElementById('erro_msg').innerText = "Captura cancelada.";
             }
         }
 
-        async function traduzir(texto) {
+        async function traduzir(texto, elementoHTML) {
             try {
-                // TENTATIVA 1: Google Translate
                 const urlGoogle = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-br&dt=t&q=${encodeURIComponent(texto)}`;
                 const response = await fetch(urlGoogle);
                 const data = await response.json();
                 
-                // Trava de segurança: só atualiza a tela se o texto traduzido realmente existir no formato esperado
-                if (data && data[0] && data[0][0] && data[0][0][0]) {
-                    document.getElementById('legenda-pt').innerText = data[0][0][0];
-                    return; // Interrompe a função com sucesso
+                if (data && data[0]) {
+                    // Junta os pedaços da tradução, caso o Google divida uma frase longa
+                    let textoFinal = '';
+                    for (let i = 0; i < data[0].length; i++) {
+                        if (data[0][i][0]) textoFinal += data[0][i][0];
+                    }
+                    
+                    elementoHTML.dataset.pt = textoFinal;
+                    if (seletorIdioma.value === 'pt') {
+                        elementoHTML.innerText = textoFinal;
+                    }
+                    rolarParaFinal();
+                    return;
                 }
-                
-                throw new Error("Formato inválido do Google");
+                throw new Error("Falha no Google");
                 
             } catch (error) {
                 try {
-                    // TENTATIVA 2: MyMemory API (Caso o Google falhe)
                     const urlMyMemory = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(texto)}&langpair=en|pt-br`;
-                    const resMyMemory = await fetch(urlMyMemory);
-                    const dataMyMemory = await resMyMemory.json();
+                    const res = await fetch(urlMyMemory);
+                    const data = await res.json();
                     
-                    // Trava de segurança secundária
-                    if (dataMyMemory && dataMyMemory.responseData && dataMyMemory.responseData.translatedText) {
-                        document.getElementById('legenda-pt').innerText = dataMyMemory.responseData.translatedText;
-                        return; // Interrompe a função com sucesso
+                    if (data && data.responseData && data.responseData.translatedText) {
+                        elementoHTML.dataset.pt = data.responseData.translatedText;
+                        if (seletorIdioma.value === 'pt') elementoHTML.innerText = data.responseData.translatedText;
+                        rolarParaFinal();
+                        return;
                     }
-                    
-                    throw new Error("Formato inválido do MyMemory");
-                    
-                } catch (error2) {
-                    // Se os dois servidores falharem, exibe uma mensagem amigável no lugar do "Undefined"
-                    document.getElementById('legenda-pt').innerText = "[Aguardando conexão com o tradutor...]";
+                    throw new Error("Falha no MyMemory");
+                } catch (err2) {
+                    elementoHTML.dataset.pt = "[Erro ao traduzir: " + texto + "]";
+                    if (seletorIdioma.value === 'pt') elementoHTML.innerText = elementoHTML.dataset.pt;
                 }
             }
         }
