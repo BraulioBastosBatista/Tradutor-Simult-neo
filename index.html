@@ -4,11 +4,7 @@
     <meta charset="UTF-8">
     <title>Tradução Simultânea</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             background: #121212; 
             color: #ffffff; 
@@ -16,10 +12,9 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
-            overflow: hidden; /* Trava a tela inteira, a rolagem fica só no container de texto */
+            overflow: hidden; 
         }
         
-        /* Cabeçalho de Controles */
         header {
             background: #1e1e1e;
             padding: 15px 30px;
@@ -43,11 +38,8 @@
         }
         button:hover { background: #005a9e; }
         
-        .controles-direita {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
+        .controles-direita { display: flex; align-items: center; gap: 15px; }
+        
         select {
             background: #2d2d2d;
             color: white;
@@ -59,31 +51,43 @@
             outline: none;
         }
         
-        /* Área das Legendas */
         #container-legendas {
             flex: 1;
             padding: 40px;
-            overflow-y: auto; /* Cria a barra de rolagem à direita */
+            overflow-y: auto; 
             display: flex;
             flex-direction: column;
             gap: 20px;
             scroll-behavior: smooth;
         }
         
-        /* Estilo de cada frase gerada */
+        #historico {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
         .frase { 
             font-size: 2.2rem; 
             line-height: 1.5; 
             padding-bottom: 15px;
             border-bottom: 1px solid #333;
-            animation: fadeIn 0.5s ease-in-out;
+            animation: fadeIn 0.3s ease-in-out;
         }
         
-        /* Destaque para a frase mais recente */
         .frase:last-child {
-            color: #FFD700; /* Amarelo para a frase atual */
+            color: #FFD700; 
             border-bottom: none;
             font-weight: bold;
+        }
+
+        /* Novo estilo para o texto em tempo real (Digitando) */
+        #texto-ativo {
+            font-size: 1.8rem;
+            color: #888888;
+            font-style: italic;
+            min-height: 3rem;
+            margin-top: 10px;
         }
 
         .erro { color: #ff5555; font-size: 1rem; font-weight: bold; }
@@ -108,7 +112,9 @@
     </header>
     
     <div id="container-legendas">
-        <!-- As frases vão aparecer empilhadas aqui dentro -->
+        <div id="historico"></div>
+        <!-- Bloco que mostra o texto instantâneo antes de traduzir -->
+        <div id="texto-ativo"></div> 
     </div>
     
     <script>
@@ -116,6 +122,8 @@
         let socket;
         let audioContext;
         const containerLegendas = document.getElementById('container-legendas');
+        const historico = document.getElementById('historico');
+        const textoAtivo = document.getElementById('texto-ativo');
         const seletorIdioma = document.getElementById('lang-selector');
 
         function rolarParaFinal() {
@@ -126,7 +134,6 @@
             const idiomaAtual = seletorIdioma.value;
             const frases = document.querySelectorAll('.frase');
             
-            // Troca o texto de todas as frases na tela instantaneamente
             frases.forEach(div => {
                 if (idiomaAtual === 'pt') {
                     div.innerText = div.dataset.pt || "[Traduzindo...]";
@@ -141,17 +148,14 @@
             const novaFrase = document.createElement('div');
             novaFrase.className = 'frase';
             
-            // Salva os dois idiomas ocultamente dentro do elemento
             novaFrase.dataset.en = textoIngles;
             novaFrase.dataset.pt = "[Traduzindo...]";
             
-            // Define o que aparece na tela com base no seletor
             novaFrase.innerText = seletorIdioma.value === 'pt' ? novaFrase.dataset.pt : novaFrase.dataset.en;
             
-            containerLegendas.appendChild(novaFrase);
+            historico.appendChild(novaFrase);
             rolarParaFinal();
             
-            // Dispara a tradução para esta frase específica
             traduzir(textoIngles, novaFrase);
         }
 
@@ -159,10 +163,7 @@
             document.getElementById('erro_msg').innerText = ""; 
 
             try {
-                const stream = await navigator.mediaDevices.getDisplayMedia({
-                    video: true, 
-                    audio: true
-                });
+                const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
 
                 if (stream.getAudioTracks().length === 0) {
                     document.getElementById('erro_msg').innerText = "ERRO: Marque 'Compartilhar áudio da guia'.";
@@ -173,8 +174,8 @@
                 document.getElementById('btn-iniciar').innerText = "Conectado! Escutando...";
                 document.getElementById('btn-iniciar').style.background = "#28a745";
 
-                // endpointing=true força a IA a esperar a pausa da frase antes de finalizar
-                socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1&endpointing=true', [
+                // Adicionado interim_results=true para captura super rápida palavra por palavra
+                socket = new WebSocket('wss://api.deepgram.com/v1/listen?model=nova-2&language=en&encoding=linear16&sample_rate=16000&channels=1&endpointing=true&interim_results=true', [
                     'token', DEEPGRAM_API_KEY
                 ]);
 
@@ -208,9 +209,16 @@
                         if (data.type === 'Results' && data.channel) {
                             const transcricao = data.channel.alternatives[0].transcript;
                             
-                            // Cria um novo bloco apenas quando a frase é finalizada
-                            if (transcricao && data.is_final) {
-                                adicionarFrase(transcricao);
+                            if (transcricao) {
+                                if (data.is_final) {
+                                    // A frase acabou. Limpa o texto ativo e joga para o histórico definitivo
+                                    textoAtivo.innerText = "";
+                                    adicionarFrase(transcricao);
+                                } else {
+                                    // A frase está sendo construída. Mostra em tempo real (em inglês)
+                                    textoAtivo.innerText = "🗣️ " + transcricao + "...";
+                                    rolarParaFinal();
+                                }
                             }
                         }
                     } catch (e) {
@@ -230,7 +238,6 @@
                 const data = await response.json();
                 
                 if (data && data[0]) {
-                    // Junta os pedaços da tradução, caso o Google divida uma frase longa
                     let textoFinal = '';
                     for (let i = 0; i < data[0].length; i++) {
                         if (data[0][i][0]) textoFinal += data[0][i][0];
